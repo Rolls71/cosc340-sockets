@@ -15,8 +15,8 @@ const (
 func main() {
 	switch os.Args[1] {
 	case "client":
-		sockets.Client(SERVER_TYPE, SERVER_HOST, SERVER_PORT)
+		sockets.Client(SERVER_HOST, SERVER_PORT)
 	case "server":
-		sockets.Server(SERVER_TYPE, SERVER_HOST, SERVER_PORT)
+		sockets.Server(SERVER_HOST, SERVER_PORT)
 	}
 }

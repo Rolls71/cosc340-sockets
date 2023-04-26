@@ -8,22 +8,33 @@ import (
 	"time"
 )
 
-func Client(server_type, server_host, server_port string) {
+func Client(serverHost, serverPort string) {
+	// Set seed to current time and generate random client ID.
 	rand.Seed(time.Now().UnixNano())
 	id := rand.Int()
 
-	//establish connection
-	connection, err := net.Dial(server_type, server_host+":"+server_port)
+	// Connect to server and close connection upon return.
+	connection, err := net.Dial(serverType, serverHost+":"+serverPort)
 	if err != nil {
 		panic(err)
 	}
-	///send some data
+	defer connection.Close()
+
+	// Register session by sending CONNECT message.
 	connection.Write([]byte("CONNECT " + fmt.Sprintf("%d", id)))
 	buffer := make([]byte, 1024)
 	mLen, err := connection.Read(buffer)
 	if err != nil {
 		fmt.Println("Error reading:", err.Error())
+		return
 	}
-	fmt.Println("> " + string(buffer[:mLen]))
-	defer connection.Close()
+	fmt.Println(string(buffer[:mLen]))
+
+	// Send user input to server and handle responses.
+	for {
+		var response string
+		fmt.Scan(&response)
+		fmt.Println("User typed: ", response)
+		// Write.
+	}
 }
