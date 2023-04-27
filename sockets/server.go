@@ -140,6 +140,20 @@ func clientSession(connection net.Conn, clients map[string]ClientData) {
 			if !sendMessage(connection, id, "DELETE: OK") {
 				return
 			}
+		// DISCONNECT
+		case strings.HasPrefix(string(buffer[:mLen]), "DISCONNECT"):
+			if !sendMessage(connection, id, "DISCONNECT: OK") {
+				return
+			}
+			delete(clients, id)
+			return
+		// unknown commands
+		default:
+			if !sendMessage(connection, id, "DISCONNECT: UNKNOWN COMMAND") {
+				return
+			}
+			delete(clients, id)
+			return
 		}
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -30,6 +31,7 @@ func Client(serverHost, serverPort string) {
 		return
 	}
 
+	// Wait for goroutines to return before ending program.
 	var wg sync.WaitGroup
 	wg.Add(2)
 
@@ -40,25 +42,28 @@ func Client(serverHost, serverPort string) {
 	go readUserInput(connection)
 
 	wg.Wait()
-	fmt.Println("Program complete")
 }
 
 // readResponses will continuously check for server messages and print anything
-// it finds. If "DISCONNECT: OK" is received, the function will return.
+// it finds. If "DISCONNECT" is received the program will end.
 func readResponses(connection net.Conn) {
 	for {
 		buffer := make([]byte, 1024)
 		mLen, err := connection.Read(buffer)
 		if err != nil {
 			fmt.Println("Error reading:", err.Error())
-			return
+			os.Exit(1)
 		}
 		fmt.Printf("\n%s\n> ", string(buffer[:mLen]))
+		if strings.HasPrefix(string(buffer[:mLen]), "DISCONNECT") {
+			os.Exit(0)
+		}
 	}
 }
 
 // readUserInput will continously check for user input and send each line to
-// the server. If "DISCONNECT" is input, the function will return.
+// the server. The function will return if an error sending a message occurs,
+// the program will end.
 func readUserInput(connection net.Conn) {
 	for {
 		reader := bufio.NewReader(os.Stdin)
@@ -67,7 +72,7 @@ func readUserInput(connection net.Conn) {
 		_, err := connection.Write([]byte(input[:len(input)-2])) // Cut end-line.
 		if err != nil {
 			fmt.Println("Error writing:", err.Error())
-			return
+			os.Exit(1)
 		}
 	}
 }
