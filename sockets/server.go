@@ -82,7 +82,6 @@ func clientSession(connection net.Conn, clients map[string]ClientData) {
 
 		// Last message was PUT [key], current message must be [value].
 		if key != "" {
-			// Store message as value.
 			fmt.Printf("Storing \"%s\": \"%s\" under user %s\n", key, string(buffer[:mLen]), id)
 			clients[id].clientData[key] = string(buffer[:mLen])
 
@@ -124,6 +123,25 @@ func clientSession(connection net.Conn, clients map[string]ClientData) {
 		// PUT
 		case strings.HasPrefix(string(buffer[:mLen]), "PUT "):
 			key = string(buffer[4:mLen])
+		// GET
+		case strings.HasPrefix(string(buffer[:mLen]), "GET "):
+			value := []byte(clients[id].clientData[string(buffer[4:mLen])])
+
+			if string(value) == "" {
+				_, err = connection.Write([]byte("GET: ERROR"))
+				if err != nil {
+					fmt.Println("Error writing:", err.Error())
+					return
+				}
+				continue
+			}
+
+			_, err = connection.Write(value)
+			if err != nil {
+				fmt.Println("Error writing:", err.Error())
+				return
+			}
+			fmt.Printf("Sent value \"%s\" to user %s\n", value, id)
 		}
 	}
 }
