@@ -142,6 +142,23 @@ func clientSession(connection net.Conn, clients map[string]ClientData) {
 				return
 			}
 			fmt.Printf("Sent value \"%s\" to user %s\n", value, id)
+		// DELETE
+		case strings.HasPrefix(string(buffer[:mLen]), "DELETE "):
+			_, exists := clients[id].clientData[string(buffer[7:mLen])]
+			if !exists {
+				_, err = connection.Write([]byte("DELETE: ERROR"))
+				if err != nil {
+					fmt.Println("Error writing:", err.Error())
+					return
+				}
+				continue
+			}
+			delete(clients[id].clientData, string(buffer[7:mLen]))
+			_, err = connection.Write([]byte("DELETE: OK"))
+			if err != nil {
+				fmt.Println("Error writing:", err.Error())
+				return
+			}
 		}
 	}
 }
