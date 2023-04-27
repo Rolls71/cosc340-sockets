@@ -11,6 +11,7 @@ import (
 const (
 	clientsFname = "clients.txt"
 	serverType   = "tcp"
+	serverHost   = "localhost"
 )
 
 type ClientData struct {
@@ -33,7 +34,7 @@ func idExists(clientList map[string]ClientData, newClientID string) bool {
 // messages from multiple clients. Using net.Listen Server listens for new
 // clients, creates a new client session on a new goroutine, and passes them a
 // pointer to a shared Data structure so they can be processed.
-func Server(serverHost, serverPort string) {
+func Server(serverPort string) {
 	// Open server and close upon function completion.
 	fmt.Println("Server Running...")
 	server, err := net.Listen(serverType, serverHost+":"+serverPort)
