@@ -82,12 +82,9 @@ func clientSession(connection net.Conn, clients map[string]ClientData) {
 
 		// Last message was PUT [key], current message must be [value].
 		if key != "" {
-			fmt.Printf("Storing \"%s\": \"%s\" under user %s\n", key, string(buffer[:mLen]), id)
 			clients[id].clientData[key] = string(buffer[:mLen])
 
-			_, err = connection.Write([]byte("PUT: OK"))
-			if err != nil {
-				fmt.Println("Error writing:", err.Error())
+			if !sendMessage(connection, id, "PUT: OK") {
 				return
 			}
 
@@ -101,19 +98,13 @@ func clientSession(connection net.Conn, clients map[string]ClientData) {
 		case strings.HasPrefix(string(buffer[:mLen]), "CONNECT "):
 			id = string(buffer[8:mLen])
 			if idExists(clients, id) {
-				_, err = connection.Write([]byte("CONNECT: ERROR"))
-				if err != nil {
-					fmt.Println("Error writing:", err.Error())
+				if !sendMessage(connection, id, "CONNECT: ERROR") {
 					return
 				}
-				fmt.Println("CONNECT: ERROR")
 				return
 			}
 
-			fmt.Println("Created session:", id)
-			_, err = connection.Write([]byte("CONNECT: OK"))
-			if err != nil {
-				fmt.Println("Error writing:", err.Error())
+			if !sendMessage(connection, id, "CONNECT: OK") {
 				return
 			}
 			clients[id] = ClientData{
@@ -128,37 +119,39 @@ func clientSession(connection net.Conn, clients map[string]ClientData) {
 			value := []byte(clients[id].clientData[string(buffer[4:mLen])])
 
 			if string(value) == "" {
-				_, err = connection.Write([]byte("GET: ERROR"))
-				if err != nil {
-					fmt.Println("Error writing:", err.Error())
+				if !sendMessage(connection, id, "GET: ERROR") {
 					return
 				}
 				continue
 			}
-
-			_, err = connection.Write(value)
-			if err != nil {
-				fmt.Println("Error writing:", err.Error())
+			if !sendMessage(connection, id, string(value)) {
 				return
 			}
-			fmt.Printf("Sent value \"%s\" to user %s\n", value, id)
 		// DELETE
 		case strings.HasPrefix(string(buffer[:mLen]), "DELETE "):
 			_, exists := clients[id].clientData[string(buffer[7:mLen])]
 			if !exists {
-				_, err = connection.Write([]byte("DELETE: ERROR"))
-				if err != nil {
-					fmt.Println("Error writing:", err.Error())
+				if !sendMessage(connection, id, "DELETE: ERROR") {
 					return
 				}
 				continue
 			}
 			delete(clients[id].clientData, string(buffer[7:mLen]))
-			_, err = connection.Write([]byte("DELETE: OK"))
-			if err != nil {
-				fmt.Println("Error writing:", err.Error())
+			if !sendMessage(connection, id, "DELETE: OK") {
 				return
 			}
 		}
 	}
+}
+
+// sendMessage sends the given message along the given connection.
+// if an error occurs, sendMessage returns false.
+func sendMessage(connection net.Conn, id, message string) bool {
+	_, err := connection.Write([]byte(message))
+	if err != nil {
+		fmt.Println("Error writing:", err.Error())
+		return false
+	}
+	fmt.Printf("Send \"%s\" to %s\n", message, id)
+	return true
 }
