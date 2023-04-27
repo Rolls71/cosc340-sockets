@@ -4,18 +4,21 @@ package sockets
 import (
 	"bufio"
 	"fmt"
-	"math/rand"
 	"net"
 	"os"
 	"strings"
 	"sync"
-	"time"
 )
 
+var validCommands = [4]string{"PUT ", "GET ", "DELETE ", "DISCONNECT"}
+var isPuttingValue = false
+var isGettingValue = false
+
 func Client(serverHost, serverPort string) {
-	// Set seed to current time and generate random client ID.
-	rand.Seed(time.Now().UnixNano())
-	id := rand.Int()
+
+	fmt.Print("Please enter a session ID: ")
+	reader := bufio.NewReader(os.Stdin)
+	id, _ := reader.ReadString('\n')
 
 	// Connect to server and close connection upon return.
 	connection, err := net.Dial(serverType, serverHost+":"+serverPort)
@@ -25,11 +28,35 @@ func Client(serverHost, serverPort string) {
 	defer connection.Close()
 
 	// Register session by sending CONNECT message.
-	_, err = connection.Write([]byte("CONNECT " + fmt.Sprintf("%d", id)))
+	_, err = connection.Write([]byte("CONNECT " + id))
 	if err != nil {
 		fmt.Println("Error writing:", err.Error())
 		return
 	}
+
+	buffer := make([]byte, 1024)
+	mLen, err := connection.Read(buffer)
+	if err != nil {
+		fmt.Println("Error reading:", err.Error())
+		os.Exit(1)
+	}
+	if string(buffer[:mLen]) == "CONNECT: ERROR" {
+		fmt.Println("Error: session ID is already taken.")
+		os.Exit(1)
+	}
+
+	fmt.Println(`
+KEY-VALUE STORE CLIENT
+Connects to the given server and manipulates data with the following commands:
+* PUT [key] - Allows the client to store a key, the following message will be stored as the associated value. 
+The server responds \"PUT: OK\" or \"PUT: ERROR\", depending on whether the operation is successful.
+* GET [key] - Allows the client to retrieve the value associated with a given key, if such a value exists. 
+The server responds either with the associated value or a \"GET: ERROR\" message.
+* DELETE [key] - Allows the client to delete a key and its associated value. The server responds \"DELETE: OK\" 
+or \"DELETE: ERROR\", depending on whether the operation is successful.
+* DISCONNECT - The server will remove all values stored by the client from its system and respond \"DISCONNECT: OK\". 
+After receiving a \"DISCONNECT: OK\" message, the client exits.
+After sending any other than these commands, the server and client will disconnect.`)
 
 	// Wait for goroutines to return before ending program.
 	var wg sync.WaitGroup
@@ -54,25 +81,63 @@ func readResponses(connection net.Conn) {
 			fmt.Println("Error reading:", err.Error())
 			os.Exit(1)
 		}
-		fmt.Printf("\n%s\n> ", string(buffer[:mLen]))
-		if strings.HasPrefix(string(buffer[:mLen]), "DISCONNECT") {
+		fmt.Printf("\u001b[0K%s\n> ", string(buffer[:mLen]))
+		switch {
+		case strings.HasPrefix(string(buffer[:mLen]), "CONNECT"):
+		case strings.HasPrefix(string(buffer[:mLen]), "PUT"):
+		case strings.HasPrefix(string(buffer[:mLen]), "DELETE"):
+			continue
+
+		case strings.HasPrefix(string(buffer[:mLen]), "GET"):
+			isGettingValue = true
+			continue
+		case isGettingValue:
+			isGettingValue = false
+			continue
+		case strings.HasPrefix(string(buffer[:mLen]), "DISCONNECT"):
+			os.Exit(0)
+		default:
 			os.Exit(0)
 		}
 	}
 }
 
 // readUserInput will continously check for user input and send each line to
-// the server. The function will return if an error sending a message occurs,
-// the program will end.
+// the server. If an invalid command is entered, the command will not be sent.
+// The function will return if an error sending a message occurs, the
+// program will end.
 func readUserInput(connection net.Conn) {
 	for {
 		reader := bufio.NewReader(os.Stdin)
 		fmt.Print("> ")
 		input, _ := reader.ReadString('\n')
-		_, err := connection.Write([]byte(input[:len(input)-2])) // Cut end-line.
-		if err != nil {
-			fmt.Println("Error writing:", err.Error())
-			os.Exit(1)
+		for _, command := range validCommands {
+			if !strings.HasPrefix(input, command) && !isPuttingValue {
+				continue
+			}
+			if isPuttingValue {
+				_, err := connection.Write([]byte(input[:len(input)-2])) // Cut end-line.
+				if err != nil {
+					fmt.Println("Error writing:", err.Error())
+					os.Exit(1)
+				}
+				isPuttingValue = false
+				break
+			} else if strings.HasPrefix(input, "PUT ") {
+				_, err := connection.Write([]byte(input[:len(input)-2])) // Cut end-line.
+				if err != nil {
+					fmt.Println("Error writing:", err.Error())
+					os.Exit(1)
+				}
+				isPuttingValue = true
+				break
+			}
+			_, err := connection.Write([]byte(input[:len(input)-2])) // Cut end-line.
+			if err != nil {
+				fmt.Println("Error writing:", err.Error())
+				os.Exit(1)
+			}
+			break
 		}
 	}
 }
