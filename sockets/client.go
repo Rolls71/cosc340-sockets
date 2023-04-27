@@ -2,9 +2,12 @@
 package sockets
 
 import (
+	"bufio"
 	"fmt"
 	"math/rand"
 	"net"
+	"os"
+	"sync"
 	"time"
 )
 
@@ -21,20 +24,50 @@ func Client(serverHost, serverPort string) {
 	defer connection.Close()
 
 	// Register session by sending CONNECT message.
-	connection.Write([]byte("CONNECT " + fmt.Sprintf("%d", id)))
-	buffer := make([]byte, 1024)
-	mLen, err := connection.Read(buffer)
+	_, err = connection.Write([]byte("CONNECT " + fmt.Sprintf("%d", id)))
 	if err != nil {
-		fmt.Println("Error reading:", err.Error())
+		fmt.Println("Error writing:", err.Error())
 		return
 	}
-	fmt.Println(string(buffer[:mLen]))
 
-	// Send user input to server and handle responses.
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Create a goroutine that will print server responses.
+	go readResponses(connection)
+
+	// Create a goroutine that will send user input to server.
+	go readUserInput(connection)
+
+	wg.Wait()
+	fmt.Println("Program complete")
+}
+
+// readResponses will continuously check for server messages and print anything
+// it finds. If "DISCONNECT: OK" is received, the function will return.
+func readResponses(connection net.Conn) {
 	for {
-		var response string
-		fmt.Scan(&response)
-		fmt.Println("User typed: ", response)
-		// Write.
+		buffer := make([]byte, 1024)
+		mLen, err := connection.Read(buffer)
+		if err != nil {
+			fmt.Println("Error reading:", err.Error())
+			return
+		}
+		fmt.Printf("\n%s\n> ", string(buffer[:mLen]))
+	}
+}
+
+// readUserInput will continously check for user input and send each line to
+// the server. If "DISCONNECT" is input, the function will return.
+func readUserInput(connection net.Conn) {
+	for {
+		reader := bufio.NewReader(os.Stdin)
+		fmt.Print("> ")
+		input, _ := reader.ReadString('\n')
+		_, err := connection.Write([]byte(input[:len(input)-2])) // Cut end-line.
+		if err != nil {
+			fmt.Println("Error writing:", err.Error())
+			return
+		}
 	}
 }
