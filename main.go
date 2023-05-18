@@ -16,5 +16,7 @@ func main() {
 		sockets.Client(os.Args[2], os.Args[3])
 	case "server":
 		sockets.Server(os.Args[2])
+	case "rsa":
+		sockets.TestRSA()
 	}
 }
