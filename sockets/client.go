@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 )
@@ -13,12 +14,19 @@ import (
 var validCommands = [4]string{"PUT ", "GET ", "DELETE ", "DISCONNECT"}
 var isPuttingValue = false
 var isGettingValue = false
+var endLineChars = 2
 
 func Client(serverHost, serverPort string) {
+	if runtime.GOOS == "windows" {
+		endLineChars = 2
+	} else {
+		endLineChars = 1
+	}
 
 	fmt.Print("Please enter a session ID: ")
 	reader := bufio.NewReader(os.Stdin)
 	id, _ := reader.ReadString('\n')
+	id = id[:len(id)-endLineChars]
 
 	// Connect to server and close connection upon return.
 	connection, err := net.Dial(serverType, serverHost+":"+serverPort)
@@ -87,17 +95,13 @@ func readResponses(connection net.Conn) {
 		case strings.HasPrefix(string(buffer[:mLen]), "PUT"):
 		case strings.HasPrefix(string(buffer[:mLen]), "DELETE"):
 			continue
-
-		case strings.HasPrefix(string(buffer[:mLen]), "GET"):
-			isGettingValue = true
-			continue
-		case isGettingValue:
-			isGettingValue = false
-			continue
-		case strings.HasPrefix(string(buffer[:mLen]), "DISCONNECT"):
-			os.Exit(0)
 		default:
-			os.Exit(0)
+			if isGettingValue {
+				isGettingValue = false
+				continue
+			} else {
+				os.Exit(0)
+			}
 		}
 	}
 }
@@ -116,7 +120,7 @@ func readUserInput(connection net.Conn) {
 				continue
 			}
 			if isPuttingValue {
-				_, err := connection.Write([]byte(input[:len(input)-2])) // Cut end-line.
+				_, err := connection.Write([]byte(input[:len(input)-endLineChars])) // Cut end-line.
 				if err != nil {
 					fmt.Println("Error writing:", err.Error())
 					os.Exit(1)
@@ -124,7 +128,7 @@ func readUserInput(connection net.Conn) {
 				isPuttingValue = false
 				break
 			} else if strings.HasPrefix(input, "PUT ") {
-				_, err := connection.Write([]byte(input[:len(input)-2])) // Cut end-line.
+				_, err := connection.Write([]byte(input[:len(input)-endLineChars])) // Cut end-line.
 				if err != nil {
 					fmt.Println("Error writing:", err.Error())
 					os.Exit(1)
@@ -132,7 +136,10 @@ func readUserInput(connection net.Conn) {
 				isPuttingValue = true
 				break
 			}
-			_, err := connection.Write([]byte(input[:len(input)-2])) // Cut end-line.
+			if strings.HasPrefix(input, "GET ") {
+				isGettingValue = true
+			}
+			_, err := connection.Write([]byte(input[:len(input)-endLineChars])) // Cut end-line.
 			if err != nil {
 				fmt.Println("Error writing:", err.Error())
 				os.Exit(1)

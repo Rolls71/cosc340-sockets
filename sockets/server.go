@@ -112,6 +112,7 @@ func clientSession(connection net.Conn, clients map[string]ClientData) {
 				clientID:   id,
 				clientData: map[string]string{},
 			}
+			defer delete(clients, id)
 		// PUT
 		case strings.HasPrefix(string(buffer[:mLen]), "PUT "):
 			key = string(buffer[4:mLen])
@@ -146,14 +147,12 @@ func clientSession(connection net.Conn, clients map[string]ClientData) {
 			if !sendMessage(connection, id, "DISCONNECT: OK") {
 				return
 			}
-			delete(clients, id)
 			return
 		// unknown commands
 		default:
 			if !sendMessage(connection, id, "DISCONNECT: UNKNOWN COMMAND") {
 				return
 			}
-			delete(clients, id)
 			return
 		}
 	}
