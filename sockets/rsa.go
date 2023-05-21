@@ -11,11 +11,11 @@ import (
 	"strings"
 )
 
-// GenerateKeys generates an 2048 bit RSA keypair using a cryptographically
+// GenerateRSAKeys generates an 2048 bit RSA keypair using a cryptographically
 // secure random number generator selected by crypto/rand.Reader.
 //
 // Returns a pointer to the private key and a copy of the public key.
-func GenerateKeys() (*rsa.PrivateKey, rsa.PublicKey) {
+func GenerateRSAKeys() (*rsa.PrivateKey, rsa.PublicKey) {
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		panic(err)
@@ -24,12 +24,12 @@ func GenerateKeys() (*rsa.PrivateKey, rsa.PublicKey) {
 	return privateKey, privateKey.PublicKey
 }
 
-// Encrypt will use the given public key to encrypt the given plaintext using
+// EncryptRSA will use the given public key to encrypt the given plaintext using
 // RSA-OEAP (Optimal Asymmetric Encryption Padding) encryption. The plaintext is
 // hashed with SHA256 and salted with crypto/rand.Reader generated bits.
 //
 // Returns a ciphertext byte array.
-func Encrypt(publicKey rsa.PublicKey, plainText string) ([]byte, bool) {
+func EncryptRSA(publicKey rsa.PublicKey, plainText string) ([]byte, bool) {
 	encryptedBytes, err := rsa.EncryptOAEP(
 		sha256.New(),
 		rand.Reader,
@@ -43,11 +43,11 @@ func Encrypt(publicKey rsa.PublicKey, plainText string) ([]byte, bool) {
 	return encryptedBytes, true
 }
 
-// Decrypt uses the given private key to decrypt the given bytes. It is assumed
+// DecryptRSA uses the given private key to decrypt the given bytes. It is assumed
 // the bytes were encrypted with RSA-OEAP and hashed with SHA256.
 //
 // Returns a decrypted string of plaintext.
-func Decrypt(privateKey *rsa.PrivateKey, encryptedBytes []byte) ([]byte, bool) {
+func DecryptRSA(privateKey *rsa.PrivateKey, encryptedBytes []byte) ([]byte, bool) {
 	decryptedBytes, err := privateKey.Decrypt(
 		nil,
 		encryptedBytes,
@@ -59,13 +59,13 @@ func Decrypt(privateKey *rsa.PrivateKey, encryptedBytes []byte) ([]byte, bool) {
 	return decryptedBytes, true
 }
 
-// Sign uses the given private key to sign a checksummed hash generated from the
+// SignRSA uses the given private key to sign a checksummed hash generated from the
 // given plaintext. The hash is generated with SHA256 and salted with
 // crypto/rand.Reader, and the signature is generated with RSASSA-PSS.
 //
 // Returns a signature byte array.
-func Sign(privateKey *rsa.PrivateKey, plainText string) []byte {
-	msgHashSum := generateHashSum(plainText)
+func SignRSA(privateKey *rsa.PrivateKey, plainText string) []byte {
+	msgHashSum := generateHashSumRSA(plainText)
 
 	signature, err := rsa.SignPSS(
 		rand.Reader,
@@ -80,14 +80,14 @@ func Sign(privateKey *rsa.PrivateKey, plainText string) []byte {
 	return signature
 }
 
-// Verify verifies the given plaintext by first generating its checksummed hash,
+// VerifyRSA verifies the given plaintext by first generating its checksummed hash,
 // then verifying that hash with the given public key. The hash is generated
 // with SHA256 and salted with crypto/rand.Reader, and the signature is
 // generated with RSASSA-PSS.
 //
 // Panics if the verification fails.
-func Verify(publicKey rsa.PublicKey, plainText string, signature []byte) {
-	msgHashSum := generateHashSum(plainText)
+func VerifyRSA(publicKey rsa.PublicKey, plainText string, signature []byte) {
+	msgHashSum := generateHashSumRSA(plainText)
 
 	err := rsa.VerifyPSS(
 		&publicKey,
@@ -100,11 +100,11 @@ func Verify(publicKey rsa.PublicKey, plainText string, signature []byte) {
 	}
 }
 
-func KeyToString(publicKey rsa.PublicKey) string {
+func RSAKeyToString(publicKey rsa.PublicKey) string {
 	return publicKey.N.String() + "-" + strconv.Itoa(publicKey.E)
 }
 
-func StringToKey(publicKey string) (rsa.PublicKey, bool) {
+func StringToRSAKey(publicKey string) (rsa.PublicKey, bool) {
 	strs := strings.Split(publicKey, "-")
 	bi := big.NewInt(0)
 	_, ok := bi.SetString(strs[0], 10)
@@ -123,13 +123,13 @@ func StringToKey(publicKey string) (rsa.PublicKey, bool) {
 // TestRSA runs a demonstration of RSA encryption and signing.
 func TestRSA() {
 	// server creates keys
-	privateKey, publicKey := GenerateKeys()
+	privateKey, publicKey := GenerateRSAKeys()
 	fmt.Println("Server generates keys")
 
 	// server sends public key to client
-	str := KeyToString(publicKey)
+	str := RSAKeyToString(publicKey)
 	fmt.Println(str)
-	_, ok := StringToKey(str)
+	_, ok := StringToRSAKey(str)
 	if ok {
 		fmt.Println("Public key sent!")
 	} else {
@@ -141,20 +141,20 @@ func TestRSA() {
 	fmt.Println("Client creates plaintext: " + plainText)
 
 	// client encrypts plaintext
-	encryptedBytes, ok := Encrypt(publicKey, plainText)
+	encryptedBytes, ok := EncryptRSA(publicKey, plainText)
 	if ok {
 		fmt.Println("Client generates ciphertext")
 	} else {
 		fmt.Println("Client failed to generate ciphertext")
 	}
 
-	signature := Sign(privateKey, plainText)
+	signature := SignRSA(privateKey, plainText)
 	fmt.Println("Client generates signature")
 
 	// client sends ciphertext
 
 	// server decrypts ciphertext
-	decryptedPlainText, ok := Decrypt(privateKey, encryptedBytes)
+	decryptedPlainText, ok := DecryptRSA(privateKey, encryptedBytes)
 	if ok {
 		fmt.Println("Server decrypts plaintext: " + string(decryptedPlainText))
 	} else {
@@ -162,7 +162,7 @@ func TestRSA() {
 	}
 
 	// server verifies message
-	Verify(publicKey, string(decryptedPlainText), signature)
+	VerifyRSA(publicKey, string(decryptedPlainText), signature)
 	fmt.Println("Server verifies plaintext and signature successfully")
 
 	// server verifies a message modified by a man-in-the-middle
@@ -170,14 +170,14 @@ func TestRSA() {
 		", please send me your credit card details"
 	fmt.Println("Server verifies a man-in-the-middle's modified message: " +
 		modifiedMessage)
-	Verify(publicKey, modifiedMessage, signature)
+	VerifyRSA(publicKey, modifiedMessage, signature)
 }
 
-// generateHashSum generates a checksummed hash of the given plaintext using
+// generateHashSumRSA generates a checksummed hash of the given plaintext using
 // SHA256.
 //
 // Returns a checksummed hash in a byte array.
-func generateHashSum(plainText string) []byte {
+func generateHashSumRSA(plainText string) []byte {
 	msgHash := sha256.New()
 	_, err := msgHash.Write([]byte(plainText))
 	if err != nil {

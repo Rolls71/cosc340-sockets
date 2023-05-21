@@ -18,5 +18,7 @@ func main() {
 		sockets.Server(os.Args[2])
 	case "rsa":
 		sockets.TestRSA()
+	case "aes":
+		sockets.TestAES()
 	}
 }

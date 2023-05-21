@@ -70,19 +70,14 @@ func clientSession(connection net.Conn, clients map[string]ClientData) {
 	key := ""
 	defer connection.Close()
 	for {
-		buffer, mLen, ok := readClientMessage(connection, clients, id)
-		if !ok {
-			return
-		}
-
-		// No message.
-		if mLen == 0 {
-			continue
-		}
-		fmt.Printf("User %s: %s\n", id, string(buffer[:mLen]))
-
 		// Last message was PUT [key], current message must be [value].
 		if key != "" {
+			buffer := make([]byte, 1024)
+			mLen, err := connection.Read(buffer)
+			if err != nil {
+				fmt.Println("Error reading message from "+id+": ", err.Error())
+				return
+			}
 			clients[id].clientData[key] = string(buffer[:mLen])
 
 			if !sendServerMessage(connection, id, "PUT: OK") {
@@ -93,6 +88,17 @@ func clientSession(connection net.Conn, clients map[string]ClientData) {
 			key = ""
 			continue
 		}
+
+		buffer, mLen, ok := readClientMessage(connection, clients, id)
+		if !ok {
+			return
+		}
+
+		// No message.
+		if mLen == 0 {
+			continue
+		}
+		fmt.Printf("User %s: %s\n", id, string(buffer[:mLen]))
 
 		switch {
 		// CONNECT
@@ -106,9 +112,9 @@ func clientSession(connection net.Conn, clients map[string]ClientData) {
 				return
 			}
 
-			privateKey, publicKey := GenerateKeys()
-			fmt.Println(KeyToString(publicKey))
-			_, err := connection.Write([]byte("CONNECT: " + KeyToString(publicKey)))
+			privateKey, publicKey := GenerateRSAKeys()
+			fmt.Println(RSAKeyToString(publicKey))
+			_, err := connection.Write([]byte("CONNECT: " + RSAKeyToString(publicKey)))
 			if err != nil {
 				fmt.Println("Error writing:", err.Error())
 				return
@@ -168,12 +174,12 @@ func clientSession(connection net.Conn, clients map[string]ClientData) {
 // sendServerMessage sends the given message along the given connection.
 // if an error occurs, sendServerMessage returns false.
 func sendServerMessage(connection net.Conn, id, input string) bool {
-	publicKey, ok := StringToKey(id)
+	publicKey, ok := StringToRSAKey(id)
 	if !ok {
 		fmt.Println("Error converting string to key")
 		return false
 	}
-	encryptedBytes, ok := Encrypt(publicKey, input)
+	encryptedBytes, ok := EncryptRSA(publicKey, input)
 	if !ok {
 		fmt.Println("Error encrypting message")
 		return false
@@ -208,7 +214,7 @@ func readClientMessage(
 	}
 
 	privateKey := clients[id].serverPrivateKey
-	decryptedBytes, ok := Decrypt(privateKey, buffer[:mLen])
+	decryptedBytes, ok := DecryptRSA(privateKey, buffer[:mLen])
 	if !ok {
 		fmt.Println("ERROR: failed to decrypt")
 		return []byte{}, 0, false

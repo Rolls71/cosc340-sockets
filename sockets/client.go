@@ -19,6 +19,7 @@ var endLineChars = 2
 var clientPrivateKey *rsa.PrivateKey
 var clientPublicKey rsa.PublicKey
 var serverKey rsa.PublicKey
+var aesKey []byte
 
 func Client(serverHost, serverPort string) {
 	if runtime.GOOS == "windows" {
@@ -34,11 +35,12 @@ func Client(serverHost, serverPort string) {
 	}
 	defer connection.Close()
 
-	clientPrivateKey, clientPublicKey = GenerateKeys()
+	clientPrivateKey, clientPublicKey = GenerateRSAKeys()
 	serverKey = rsa.PublicKey{}
+	aesKey = GenerateAESKey()
 
 	// Register session by sending CONNECT message.
-	_, err = connection.Write([]byte("CONNECT " + KeyToString(clientPublicKey)))
+	_, err = connection.Write([]byte("CONNECT " + RSAKeyToString(clientPublicKey)))
 	if err != nil {
 		fmt.Println("Error writing:", err.Error())
 		return
@@ -56,12 +58,12 @@ func Client(serverHost, serverPort string) {
 	}
 	if strings.HasPrefix(string(buffer[:mLen]), "CONNECT") {
 		ok := true
-		serverKey, ok = StringToKey(string(buffer[9:mLen]))
+		serverKey, ok = StringToRSAKey(string(buffer[9:mLen]))
 		if !ok {
 			fmt.Println("ERROR: Received invalid public RSA key")
 			os.Exit(1)
 		}
-		fmt.Println(KeyToString(serverKey))
+		fmt.Println(RSAKeyToString(serverKey))
 	}
 
 	fmt.Println(`
@@ -103,23 +105,36 @@ func readServerMessages(connection net.Conn) {
 
 		if serverKey != (rsa.PublicKey{}) {
 			ok := false
-			buffer, ok = Decrypt(clientPrivateKey, buffer[:mLen])
+			buffer, ok = DecryptRSA(clientPrivateKey, buffer[:mLen])
 			if !ok {
 				panic("ERROR: Failed to decrypt message")
 			}
 			mLen = len(buffer)
 		}
 
-		fmt.Printf("\u001b[0K%s\n> ", string(buffer[:mLen]))
+		if mLen == 0 {
+			continue
+		}
+
+		if isGettingValue && string(buffer[:mLen]) != "GET: ERROR" {
+			plaintext, ok := DecryptAES(aesKey, buffer[:mLen])
+			if !ok {
+				fmt.Println("Error during AES decryption")
+				os.Exit(1)
+			}
+			fmt.Printf("\u001b[0K%s\n> ", plaintext)
+		} else {
+			fmt.Printf("\u001b[0K%s\n> ", string(buffer[:mLen]))
+		}
 		switch {
 		case strings.HasPrefix(string(buffer[:mLen]), "CONNECT: "):
 			ok := true
-			serverKey, ok = StringToKey(string(buffer[9:mLen]))
+			serverKey, ok = StringToRSAKey(string(buffer[9:mLen]))
 			if !ok {
 				fmt.Println("ERROR: Received invalid public RSA key")
 				os.Exit(1)
 			}
-			fmt.Println(KeyToString(serverKey))
+			fmt.Println(RSAKeyToString(serverKey))
 			continue
 		case strings.HasPrefix(string(buffer[:mLen]), "PUT: "):
 		case strings.HasPrefix(string(buffer[:mLen]), "DELETE: "):
@@ -149,7 +164,16 @@ func readUserInputs(connection net.Conn) {
 				continue
 			}
 			if isPuttingValue {
-				sendClientMessage(connection, input)
+				ciphertext, ok := EncryptAES(aesKey, input[:len(input)-endLineChars])
+				if !ok {
+					fmt.Println("Error during AES encryption")
+					os.Exit(1)
+				}
+				_, err := connection.Write([]byte(ciphertext)) // Cut end-line.
+				if err != nil {
+					fmt.Println("Error writing:", err.Error())
+					os.Exit(1)
+				}
 				isPuttingValue = false
 				break
 			} else if strings.HasPrefix(input, "PUT ") {
@@ -175,7 +199,7 @@ func sendClientMessage(connection net.Conn, input string) {
 		}
 		return
 	}
-	encryptedBytes, ok := Encrypt(serverKey, input[:len(input)-endLineChars])
+	encryptedBytes, ok := EncryptRSA(serverKey, input[:len(input)-endLineChars])
 	if !ok {
 		fmt.Println("Error encrypting message")
 		os.Exit(1)
