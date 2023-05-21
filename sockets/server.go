@@ -2,6 +2,7 @@
 package sockets
 
 import (
+	"crypto/rsa"
 	"fmt"
 	"net"
 	"os"
@@ -15,8 +16,9 @@ const (
 )
 
 type ClientData struct {
-	clientID   string            // The client's given ID.
-	clientData map[string]string // A mapping of key strings to value strings.
+	clientID         string            // The client's given ID.
+	clientData       map[string]string // A mapping of key strings to value strings.
+	serverPrivateKey *rsa.PrivateKey
 }
 
 // idExists checks if the given client ID string exists in the
@@ -68,12 +70,7 @@ func clientSession(connection net.Conn, clients map[string]ClientData) {
 	key := ""
 	defer connection.Close()
 	for {
-		buffer := make([]byte, 1024)
-		mLen, err := connection.Read(buffer)
-		if err != nil {
-			fmt.Println("Error reading:", err.Error())
-			return
-		}
+		buffer, mLen := readClientMessage(connection, clients, id)
 
 		// No message.
 		if mLen == 0 {
@@ -85,7 +82,7 @@ func clientSession(connection net.Conn, clients map[string]ClientData) {
 		if key != "" {
 			clients[id].clientData[key] = string(buffer[:mLen])
 
-			if !sendMessage(connection, id, "PUT: OK") {
+			if !sendEncrypted(connection, id, "PUT: OK") {
 				return
 			}
 
@@ -99,18 +96,25 @@ func clientSession(connection net.Conn, clients map[string]ClientData) {
 		case strings.HasPrefix(string(buffer[:mLen]), "CONNECT "):
 			id = string(buffer[8:mLen])
 			if idExists(clients, id) {
-				if !sendMessage(connection, id, "CONNECT: ERROR") {
-					return
+				_, err := connection.Write([]byte("CONNECT: ERROR"))
+				if err != nil {
+					fmt.Println("Error writing:", err.Error())
 				}
 				return
 			}
 
-			if !sendMessage(connection, id, "CONNECT: OK") {
+			privateKey, publicKey := GenerateKeys()
+			fmt.Println(KeyToString(publicKey))
+			_, err := connection.Write([]byte("CONNECT: " + KeyToString(publicKey)))
+			if err != nil {
+				fmt.Println("Error writing:", err.Error())
 				return
 			}
+
 			clients[id] = ClientData{
-				clientID:   id,
-				clientData: map[string]string{},
+				clientID:         id,
+				clientData:       map[string]string{},
+				serverPrivateKey: privateKey,
 			}
 			defer delete(clients, id)
 		// PUT
@@ -121,36 +125,36 @@ func clientSession(connection net.Conn, clients map[string]ClientData) {
 			value := []byte(clients[id].clientData[string(buffer[4:mLen])])
 
 			if string(value) == "" {
-				if !sendMessage(connection, id, "GET: ERROR") {
+				if !sendEncrypted(connection, id, "GET: ERROR") {
 					return
 				}
 				continue
 			}
-			if !sendMessage(connection, id, string(value)) {
+			if !sendEncrypted(connection, id, string(value)) {
 				return
 			}
 		// DELETE
 		case strings.HasPrefix(string(buffer[:mLen]), "DELETE "):
 			_, exists := clients[id].clientData[string(buffer[7:mLen])]
 			if !exists {
-				if !sendMessage(connection, id, "DELETE: ERROR") {
+				if !sendEncrypted(connection, id, "DELETE: ERROR") {
 					return
 				}
 				continue
 			}
 			delete(clients[id].clientData, string(buffer[7:mLen]))
-			if !sendMessage(connection, id, "DELETE: OK") {
+			if !sendEncrypted(connection, id, "DELETE: OK") {
 				return
 			}
 		// DISCONNECT
 		case strings.HasPrefix(string(buffer[:mLen]), "DISCONNECT"):
-			if !sendMessage(connection, id, "DISCONNECT: OK") {
+			if !sendEncrypted(connection, id, "DISCONNECT: OK") {
 				return
 			}
 			return
 		// unknown commands
 		default:
-			if !sendMessage(connection, id, "DISCONNECT: UNKNOWN COMMAND") {
+			if !sendEncrypted(connection, id, "DISCONNECT: UNKNOWN COMMAND") {
 				return
 			}
 			return
@@ -158,14 +162,49 @@ func clientSession(connection net.Conn, clients map[string]ClientData) {
 	}
 }
 
-// sendMessage sends the given message along the given connection.
-// if an error occurs, sendMessage returns false.
-func sendMessage(connection net.Conn, id, message string) bool {
-	_, err := connection.Write([]byte(message))
+// sendEncrypted sends the given message along the given connection.
+// if an error occurs, sendEncrypted returns false.
+func sendEncrypted(connection net.Conn, id, input string) bool {
+	publicKey, ok := StringToKey(id)
+	if !ok {
+		fmt.Println("Error converting string to key")
+		return false
+	}
+	encryptedBytes := Encrypt(publicKey, input)
+	_, err := connection.Write(encryptedBytes)
 	if err != nil {
 		fmt.Println("Error writing:", err.Error())
 		return false
 	}
-	fmt.Printf("Send \"%s\" to %s\n", message, id)
+	if len(id) > 10 {
+		fmt.Printf("Send \"%s\" to %s\n", string(encryptedBytes), id[:10])
+	} else {
+		fmt.Printf("Send \"%s\" to %s\n", string(encryptedBytes), id)
+	}
 	return true
+}
+
+func readClientMessage(
+	connection net.Conn,
+	clients map[string]ClientData,
+	id string,
+) ([]byte, int) {
+	buffer := make([]byte, 1024)
+	mLen, err := connection.Read(buffer)
+	if err != nil {
+		fmt.Println("Error reading:", err.Error())
+		return []byte{}, 0
+	}
+
+	if id == "" {
+		return buffer, mLen
+	}
+
+	privateKey := clients[id].serverPrivateKey
+	decryptedBytes, ok := Decrypt(privateKey, buffer[:mLen])
+	if !ok {
+		fmt.Println("ERROR: failed to decrypt")
+		return []byte{}, 0
+	}
+	return decryptedBytes, len(decryptedBytes)
 }

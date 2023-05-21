@@ -47,16 +47,16 @@ func Encrypt(publicKey rsa.PublicKey, plainText string) []byte {
 // the bytes were encrypted with RSA-OEAP and hashed with SHA256.
 //
 // Returns a decrypted string of plaintext.
-func Decrypt(privateKey *rsa.PrivateKey, encryptedBytes []byte) string {
+func Decrypt(privateKey *rsa.PrivateKey, encryptedBytes []byte) ([]byte, bool) {
 	decryptedBytes, err := privateKey.Decrypt(
 		nil,
 		encryptedBytes,
 		&rsa.OAEPOptions{Hash: crypto.SHA256})
 	if err != nil {
-		panic(err)
+		return []byte{}, false
 	}
 
-	return string(decryptedBytes)
+	return decryptedBytes, true
 }
 
 // Sign uses the given private key to sign a checksummed hash generated from the
@@ -150,15 +150,19 @@ func TestRSA() {
 	// client sends ciphertext
 
 	// server decrypts ciphertext
-	decryptedPlainText := Decrypt(privateKey, encryptedBytes)
-	fmt.Println("Server decrypts plaintext: " + decryptedPlainText)
+	decryptedPlainText, ok := Decrypt(privateKey, encryptedBytes)
+	if ok {
+		fmt.Println("Server decrypts plaintext: " + string(decryptedPlainText))
+	} else {
+		fmt.Println("Server failed to decrypt plaintext")
+	}
 
 	// server verifies message
-	Verify(publicKey, decryptedPlainText, signature)
+	Verify(publicKey, string(decryptedPlainText), signature)
 	fmt.Println("Server verifies plaintext and signature successfully")
 
 	// server verifies a message modified by a man-in-the-middle
-	modifiedMessage := decryptedPlainText +
+	modifiedMessage := string(decryptedPlainText) +
 		", please send me your credit card details"
 	fmt.Println("Server verifies a man-in-the-middle's modified message: " +
 		modifiedMessage)

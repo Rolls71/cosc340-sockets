@@ -3,6 +3,7 @@ package sockets
 
 import (
 	"bufio"
+	"crypto/rsa"
 	"fmt"
 	"net"
 	"os"
@@ -15,6 +16,9 @@ var validCommands = [4]string{"PUT ", "GET ", "DELETE ", "DISCONNECT"}
 var isPuttingValue = false
 var isGettingValue = false
 var endLineChars = 2
+var clientPrivateKey *rsa.PrivateKey
+var clientPublicKey rsa.PublicKey
+var serverKey rsa.PublicKey
 
 func Client(serverHost, serverPort string) {
 	if runtime.GOOS == "windows" {
@@ -23,11 +27,6 @@ func Client(serverHost, serverPort string) {
 		endLineChars = 1
 	}
 
-	fmt.Print("Please enter a session ID: ")
-	reader := bufio.NewReader(os.Stdin)
-	id, _ := reader.ReadString('\n')
-	id = id[:len(id)-endLineChars]
-
 	// Connect to server and close connection upon return.
 	connection, err := net.Dial(serverType, serverHost+":"+serverPort)
 	if err != nil {
@@ -35,8 +34,11 @@ func Client(serverHost, serverPort string) {
 	}
 	defer connection.Close()
 
+	clientPrivateKey, clientPublicKey = GenerateKeys()
+	serverKey = rsa.PublicKey{}
+
 	// Register session by sending CONNECT message.
-	_, err = connection.Write([]byte("CONNECT " + id))
+	_, err = connection.Write([]byte("CONNECT " + KeyToString(clientPublicKey)))
 	if err != nil {
 		fmt.Println("Error writing:", err.Error())
 		return
@@ -51,6 +53,15 @@ func Client(serverHost, serverPort string) {
 	if string(buffer[:mLen]) == "CONNECT: ERROR" {
 		fmt.Println("Error: session ID is already taken.")
 		os.Exit(1)
+	}
+	if strings.HasPrefix(string(buffer[:mLen]), "CONNECT") {
+		ok := true
+		serverKey, ok = StringToKey(string(buffer[9:mLen]))
+		if !ok {
+			fmt.Println("ERROR: Received invalid public RSA key")
+			os.Exit(1)
+		}
+		fmt.Println(KeyToString(serverKey))
 	}
 
 	fmt.Println(`
@@ -89,9 +100,27 @@ func readResponses(connection net.Conn) {
 			fmt.Println("Error reading:", err.Error())
 			os.Exit(1)
 		}
+
+		if serverKey != (rsa.PublicKey{}) {
+			ok := false
+			buffer, ok = Decrypt(clientPrivateKey, buffer[:mLen])
+			if !ok {
+				panic("ERROR: Failed to decrypt message")
+			}
+			mLen = len(buffer)
+		}
+
 		fmt.Printf("\u001b[0K%s\n> ", string(buffer[:mLen]))
 		switch {
 		case strings.HasPrefix(string(buffer[:mLen]), "CONNECT"):
+			ok := true
+			serverKey, ok = StringToKey(string(buffer[9:mLen]))
+			if !ok {
+				fmt.Println("ERROR: Received invalid public RSA key")
+				os.Exit(1)
+			}
+			fmt.Println(KeyToString(serverKey))
+			continue
 		case strings.HasPrefix(string(buffer[:mLen]), "PUT"):
 		case strings.HasPrefix(string(buffer[:mLen]), "DELETE"):
 			continue
@@ -120,31 +149,36 @@ func readUserInput(connection net.Conn) {
 				continue
 			}
 			if isPuttingValue {
-				_, err := connection.Write([]byte(input[:len(input)-endLineChars])) // Cut end-line.
-				if err != nil {
-					fmt.Println("Error writing:", err.Error())
-					os.Exit(1)
-				}
+				sendEncryptedClientMessage(connection, input)
 				isPuttingValue = false
 				break
 			} else if strings.HasPrefix(input, "PUT ") {
-				_, err := connection.Write([]byte(input[:len(input)-endLineChars])) // Cut end-line.
-				if err != nil {
-					fmt.Println("Error writing:", err.Error())
-					os.Exit(1)
-				}
+				sendEncryptedClientMessage(connection, input)
 				isPuttingValue = true
 				break
 			}
 			if strings.HasPrefix(input, "GET ") {
 				isGettingValue = true
 			}
-			_, err := connection.Write([]byte(input[:len(input)-endLineChars])) // Cut end-line.
-			if err != nil {
-				fmt.Println("Error writing:", err.Error())
-				os.Exit(1)
-			}
+			sendEncryptedClientMessage(connection, input)
 			break
 		}
+	}
+}
+
+func sendEncryptedClientMessage(connection net.Conn, input string) {
+	if serverKey == (rsa.PublicKey{}) {
+		_, err := connection.Write([]byte(input[:len(input)-endLineChars])) // Cut end-line.
+		if err != nil {
+			fmt.Println("Error writing:", err.Error())
+			os.Exit(1)
+		}
+		return
+	}
+	encryptedBytes := Encrypt(serverKey, input[:len(input)-endLineChars])
+	_, err := connection.Write(encryptedBytes) // Cut end-line.
+	if err != nil {
+		fmt.Println("Error writing:", err.Error())
+		os.Exit(1)
 	}
 }
