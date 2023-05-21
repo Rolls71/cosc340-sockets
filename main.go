@@ -6,10 +6,11 @@ import (
 	"github.com/Rolls71/cosc340-sockets/sockets"
 )
 
-//	SERVER_HOST = "localhost"
-//	SERVER_PORT = "9988"
-//	SERVER_TYPE = "tcp"
-
+// main accepts parameters in the following form:
+//   - "client [HOST_NAME] [HOST_PORT]"
+//   - "server [HOST_PORT]"
+//   - "rsa"
+//   - "aes"
 func main() {
 	switch os.Args[1] {
 	case "client":

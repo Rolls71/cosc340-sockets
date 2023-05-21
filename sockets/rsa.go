@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-// GenerateRSAKeys generates an 2048 bit RSA keypair using a cryptographically
+// GenerateRSAKeys generates a 2048 bit RSA keypair using a cryptographically
 // secure random number generator selected by crypto/rand.Reader.
 //
 // Returns a pointer to the private key and a copy of the public key.
@@ -28,7 +28,8 @@ func GenerateRSAKeys() (*rsa.PrivateKey, rsa.PublicKey) {
 // RSA-OEAP (Optimal Asymmetric Encryption Padding) encryption. The plaintext is
 // hashed with SHA256 and salted with crypto/rand.Reader generated bits.
 //
-// Returns a ciphertext byte array.
+// Returns a ciphertext byte array and true if successful. Otherwise returns an
+// empty array and a false value.
 func EncryptRSA(publicKey rsa.PublicKey, plainText string) ([]byte, bool) {
 	encryptedBytes, err := rsa.EncryptOAEP(
 		sha256.New(),
@@ -46,7 +47,8 @@ func EncryptRSA(publicKey rsa.PublicKey, plainText string) ([]byte, bool) {
 // DecryptRSA uses the given private key to decrypt the given bytes. It is assumed
 // the bytes were encrypted with RSA-OEAP and hashed with SHA256.
 //
-// Returns a decrypted string of plaintext.
+// Returns a plaintext byte array and true if successful. Otherwise returns an
+// empty byte array and false
 func DecryptRSA(privateKey *rsa.PrivateKey, encryptedBytes []byte) ([]byte, bool) {
 	decryptedBytes, err := privateKey.Decrypt(
 		nil,
@@ -85,8 +87,12 @@ func SignRSA(privateKey *rsa.PrivateKey, plainText string) []byte {
 // with SHA256 and salted with crypto/rand.Reader, and the signature is
 // generated with RSASSA-PSS.
 //
-// Panics if the verification fails.
-func VerifyRSA(publicKey rsa.PublicKey, plainText string, signature []byte) {
+// Returns true if successful, otherwise returns false.
+func VerifyRSA(
+	publicKey rsa.PublicKey,
+	plainText string,
+	signature []byte,
+) bool {
 	msgHashSum := generateHashSumRSA(plainText)
 
 	err := rsa.VerifyPSS(
@@ -96,14 +102,27 @@ func VerifyRSA(publicKey rsa.PublicKey, plainText string, signature []byte) {
 		signature,
 		nil)
 	if err != nil {
-		panic(err)
+		fmt.Println(err)
+		return false
 	}
+	return true
 }
 
+// RSAKeyToString converts a given RSA public key to a string. The string
+// contains the modulus and the exponent separated by a '-' character.
+// e.g. "[modulus]-[exponent]"
+//
+// Returns the created string
 func RSAKeyToString(publicKey rsa.PublicKey) string {
 	return publicKey.N.String() + "-" + strconv.Itoa(publicKey.E)
 }
 
+// StringToRSAKey converts a given string into an RSA public key. The string
+// must contain the modulus followed by the exponent separated by a '-'
+// character.
+// e.g. "[modulus]-[exponent]"
+//
+// Returns the created crypto/rsa.PublicKey
 func StringToRSAKey(publicKey string) (rsa.PublicKey, bool) {
 	strs := strings.Split(publicKey, "-")
 	bi := big.NewInt(0)
@@ -162,15 +181,16 @@ func TestRSA() {
 	}
 
 	// server verifies message
-	VerifyRSA(publicKey, string(decryptedPlainText), signature)
-	fmt.Println("Server verifies plaintext and signature successfully")
+	if VerifyRSA(publicKey, string(decryptedPlainText), signature) {
+		fmt.Println("Server verifies plaintext and signature successfully")
+	}
 
 	// server verifies a message modified by a man-in-the-middle
 	modifiedMessage := string(decryptedPlainText) +
 		", please send me your credit card details"
 	fmt.Println("Server verifies a man-in-the-middle's modified message: " +
 		modifiedMessage)
-	VerifyRSA(publicKey, modifiedMessage, signature)
+	fmt.Println(VerifyRSA(publicKey, modifiedMessage, signature))
 }
 
 // generateHashSumRSA generates a checksummed hash of the given plaintext using
