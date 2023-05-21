@@ -18,18 +18,7 @@ const (
 type ClientData struct {
 	clientID         string            // The client's given ID.
 	clientData       map[string]string // A mapping of key strings to value strings.
-	serverPrivateKey *rsa.PrivateKey
-}
-
-// idExists checks if the given client ID string exists in the
-// Data.clientIDs slice of strings and returns true if it is found.
-func idExists(clientList map[string]ClientData, newClientID string) bool {
-	for _, client := range clientList {
-		if newClientID == client.clientID {
-			return true
-		}
-	}
-	return false
+	serverPrivateKey *rsa.PrivateKey   // The keys used for conversation with this client.
 }
 
 // Server establishes a TCP server using network sockets capable of receiving
@@ -70,7 +59,8 @@ func clientSession(connection net.Conn, clients map[string]ClientData) {
 	key := ""
 	defer connection.Close()
 	for {
-		// Last message was PUT [key], current message must be [value].
+		// If the last client message was PUT [key], the current message must
+		// be [value]. Skip validation
 		if key != "" {
 			buffer := make([]byte, 1024)
 			mLen, err := connection.Read(buffer)
@@ -84,7 +74,7 @@ func clientSession(connection net.Conn, clients map[string]ClientData) {
 				return
 			}
 
-			// Clear key for next PUT.
+			// Clear key for next PUT command.
 			key = ""
 			continue
 		}
@@ -98,7 +88,11 @@ func clientSession(connection net.Conn, clients map[string]ClientData) {
 		if mLen == 0 {
 			continue
 		}
-		fmt.Printf("User %s: %s\n", id, string(buffer[:mLen]))
+		if len(id) > 10 {
+			fmt.Printf("User %s...: %s\n", id[:10], string(buffer[:mLen]))
+		} else {
+			fmt.Printf("User %s: %s\n", id, string(buffer[:mLen]))
+		}
 
 		switch {
 		// CONNECT
@@ -113,7 +107,6 @@ func clientSession(connection net.Conn, clients map[string]ClientData) {
 			}
 
 			privateKey, publicKey := GenerateRSAKeys()
-			fmt.Println(RSAKeyToString(publicKey))
 			_, err := connection.Write([]byte("CONNECT: " + RSAKeyToString(publicKey)))
 			if err != nil {
 				fmt.Println("Error writing:", err.Error())
@@ -161,7 +154,7 @@ func clientSession(connection net.Conn, clients map[string]ClientData) {
 				return
 			}
 			return
-		// unknown commands
+		// Unknown commands.
 		default:
 			if !sendServerMessage(connection, id, "DISCONNECT: UNKNOWN COMMAND") {
 				return
@@ -171,8 +164,21 @@ func clientSession(connection net.Conn, clients map[string]ClientData) {
 	}
 }
 
-// sendServerMessage sends the given message along the given connection.
-// if an error occurs, sendServerMessage returns false.
+// idExists checks if the given client ID string exists in the
+// Data.clientIDs slice of strings and returns true if it is found.
+func idExists(clientList map[string]ClientData, newClientID string) bool {
+	for _, client := range clientList {
+		if newClientID == client.clientID {
+			return true
+		}
+	}
+	return false
+}
+
+// sendServerMessage applies RSA encryption to the given input, and sends it
+// along the given conection.
+//
+// Returns false if an error occurs.
 func sendServerMessage(connection net.Conn, id, input string) bool {
 	publicKey, ok := StringToRSAKey(id)
 	if !ok {
@@ -190,13 +196,17 @@ func sendServerMessage(connection net.Conn, id, input string) bool {
 		return false
 	}
 	if len(id) > 10 {
-		fmt.Printf("Send \"%s\" to %s\n", string(encryptedBytes), id[:10])
+		fmt.Printf("Send \"%s\" to %s...\n", string(input), id[:10])
 	} else {
-		fmt.Printf("Send \"%s\" to %s\n", string(encryptedBytes), id)
+		fmt.Printf("Send \"%s\" to %s\n", string(input), id)
 	}
 	return true
 }
 
+// readClientMessage reads from the given connection and RSA decrypts the
+// message if keys have been exchanged. Otherwise it returns the message as is.
+//
+// Returns a byte array of the clients message and a boolean indicating success.
 func readClientMessage(
 	connection net.Conn,
 	clients map[string]ClientData,
