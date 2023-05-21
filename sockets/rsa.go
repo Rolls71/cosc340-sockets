@@ -6,6 +6,9 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"fmt"
+	"math/big"
+	"strconv"
+	"strings"
 )
 
 // GenerateKeys generates an 2048 bit RSA keypair using a cryptographically
@@ -97,6 +100,26 @@ func Verify(publicKey rsa.PublicKey, plainText string, signature []byte) {
 	}
 }
 
+func KeyToString(publicKey rsa.PublicKey) string {
+	return publicKey.N.String() + "-" + strconv.Itoa(publicKey.E)
+}
+
+func StringToKey(publicKey string) (rsa.PublicKey, bool) {
+	strs := strings.Split(publicKey, "-")
+	bi := big.NewInt(0)
+	_, ok := bi.SetString(strs[0], 10)
+	if !ok {
+		fmt.Println("ERROR: Failed to convert public key to big int")
+		return rsa.PublicKey{}, false
+	}
+	exponent, err := strconv.Atoi(strs[1])
+	if err != nil {
+		fmt.Println("ERROR: Failed to convert exponent to int")
+		return rsa.PublicKey{}, false
+	}
+	return rsa.PublicKey{N: bi, E: exponent}, true
+}
+
 // TestRSA runs a demonstration of RSA encryption and signing.
 func TestRSA() {
 	// server creates keys
@@ -104,6 +127,14 @@ func TestRSA() {
 	fmt.Println("Server generates keys")
 
 	// server sends public key to client
+	str := KeyToString(publicKey)
+	fmt.Println(str)
+	_, ok := StringToKey(str)
+	if ok {
+		fmt.Println("Public key sent!")
+	} else {
+		fmt.Println("Conversions unsuccessful, keys failed to send")
+	}
 
 	// client creates plaintext
 	plainText := "hello there"
