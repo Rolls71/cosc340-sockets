@@ -70,7 +70,10 @@ func clientSession(connection net.Conn, clients map[string]ClientData) {
 	key := ""
 	defer connection.Close()
 	for {
-		buffer, mLen := readClientMessage(connection, clients, id)
+		buffer, mLen, ok := readClientMessage(connection, clients, id)
+		if !ok {
+			return
+		}
 
 		// No message.
 		if mLen == 0 {
@@ -82,7 +85,7 @@ func clientSession(connection net.Conn, clients map[string]ClientData) {
 		if key != "" {
 			clients[id].clientData[key] = string(buffer[:mLen])
 
-			if !sendEncrypted(connection, id, "PUT: OK") {
+			if !sendServerMessage(connection, id, "PUT: OK") {
 				return
 			}
 
@@ -125,36 +128,36 @@ func clientSession(connection net.Conn, clients map[string]ClientData) {
 			value := []byte(clients[id].clientData[string(buffer[4:mLen])])
 
 			if string(value) == "" {
-				if !sendEncrypted(connection, id, "GET: ERROR") {
+				if !sendServerMessage(connection, id, "GET: ERROR") {
 					return
 				}
 				continue
 			}
-			if !sendEncrypted(connection, id, string(value)) {
+			if !sendServerMessage(connection, id, string(value)) {
 				return
 			}
 		// DELETE
 		case strings.HasPrefix(string(buffer[:mLen]), "DELETE "):
 			_, exists := clients[id].clientData[string(buffer[7:mLen])]
 			if !exists {
-				if !sendEncrypted(connection, id, "DELETE: ERROR") {
+				if !sendServerMessage(connection, id, "DELETE: ERROR") {
 					return
 				}
 				continue
 			}
 			delete(clients[id].clientData, string(buffer[7:mLen]))
-			if !sendEncrypted(connection, id, "DELETE: OK") {
+			if !sendServerMessage(connection, id, "DELETE: OK") {
 				return
 			}
 		// DISCONNECT
 		case strings.HasPrefix(string(buffer[:mLen]), "DISCONNECT"):
-			if !sendEncrypted(connection, id, "DISCONNECT: OK") {
+			if !sendServerMessage(connection, id, "DISCONNECT: OK") {
 				return
 			}
 			return
 		// unknown commands
 		default:
-			if !sendEncrypted(connection, id, "DISCONNECT: UNKNOWN COMMAND") {
+			if !sendServerMessage(connection, id, "DISCONNECT: UNKNOWN COMMAND") {
 				return
 			}
 			return
@@ -162,15 +165,19 @@ func clientSession(connection net.Conn, clients map[string]ClientData) {
 	}
 }
 
-// sendEncrypted sends the given message along the given connection.
-// if an error occurs, sendEncrypted returns false.
-func sendEncrypted(connection net.Conn, id, input string) bool {
+// sendServerMessage sends the given message along the given connection.
+// if an error occurs, sendServerMessage returns false.
+func sendServerMessage(connection net.Conn, id, input string) bool {
 	publicKey, ok := StringToKey(id)
 	if !ok {
 		fmt.Println("Error converting string to key")
 		return false
 	}
-	encryptedBytes := Encrypt(publicKey, input)
+	encryptedBytes, ok := Encrypt(publicKey, input)
+	if !ok {
+		fmt.Println("Error encrypting message")
+		return false
+	}
 	_, err := connection.Write(encryptedBytes)
 	if err != nil {
 		fmt.Println("Error writing:", err.Error())
@@ -188,23 +195,23 @@ func readClientMessage(
 	connection net.Conn,
 	clients map[string]ClientData,
 	id string,
-) ([]byte, int) {
+) ([]byte, int, bool) {
 	buffer := make([]byte, 1024)
 	mLen, err := connection.Read(buffer)
 	if err != nil {
-		fmt.Println("Error reading:", err.Error())
-		return []byte{}, 0
+		fmt.Println("Error reading message from "+id+": ", err.Error())
+		return []byte{}, 0, false
 	}
 
 	if id == "" {
-		return buffer, mLen
+		return buffer, mLen, true
 	}
 
 	privateKey := clients[id].serverPrivateKey
 	decryptedBytes, ok := Decrypt(privateKey, buffer[:mLen])
 	if !ok {
 		fmt.Println("ERROR: failed to decrypt")
-		return []byte{}, 0
+		return []byte{}, 0, false
 	}
-	return decryptedBytes, len(decryptedBytes)
+	return decryptedBytes, len(decryptedBytes), true
 }

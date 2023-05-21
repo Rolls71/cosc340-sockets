@@ -29,7 +29,7 @@ func GenerateKeys() (*rsa.PrivateKey, rsa.PublicKey) {
 // hashed with SHA256 and salted with crypto/rand.Reader generated bits.
 //
 // Returns a ciphertext byte array.
-func Encrypt(publicKey rsa.PublicKey, plainText string) []byte {
+func Encrypt(publicKey rsa.PublicKey, plainText string) ([]byte, bool) {
 	encryptedBytes, err := rsa.EncryptOAEP(
 		sha256.New(),
 		rand.Reader,
@@ -37,10 +37,10 @@ func Encrypt(publicKey rsa.PublicKey, plainText string) []byte {
 		[]byte(plainText),
 		nil)
 	if err != nil {
-		panic(err)
+		return []byte{}, false
 	}
 
-	return encryptedBytes
+	return encryptedBytes, true
 }
 
 // Decrypt uses the given private key to decrypt the given bytes. It is assumed
@@ -141,8 +141,12 @@ func TestRSA() {
 	fmt.Println("Client creates plaintext: " + plainText)
 
 	// client encrypts plaintext
-	encryptedBytes := Encrypt(publicKey, plainText)
-	fmt.Println("Client generates ciphertext")
+	encryptedBytes, ok := Encrypt(publicKey, plainText)
+	if ok {
+		fmt.Println("Client generates ciphertext")
+	} else {
+		fmt.Println("Client failed to generate ciphertext")
+	}
 
 	signature := Sign(privateKey, plainText)
 	fmt.Println("Client generates signature")

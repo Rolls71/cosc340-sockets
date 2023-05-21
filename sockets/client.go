@@ -82,17 +82,17 @@ After sending any other than these commands, the server and client will disconne
 	wg.Add(2)
 
 	// Create a goroutine that will print server responses.
-	go readResponses(connection)
+	go readServerMessages(connection)
 
 	// Create a goroutine that will send user input to server.
-	go readUserInput(connection)
+	go readUserInputs(connection)
 
 	wg.Wait()
 }
 
-// readResponses will continuously check for server messages and print anything
+// readServerMessages will continuously check for server messages and print anything
 // it finds. If "DISCONNECT" is received the program will end.
-func readResponses(connection net.Conn) {
+func readServerMessages(connection net.Conn) {
 	for {
 		buffer := make([]byte, 1024)
 		mLen, err := connection.Read(buffer)
@@ -112,7 +112,7 @@ func readResponses(connection net.Conn) {
 
 		fmt.Printf("\u001b[0K%s\n> ", string(buffer[:mLen]))
 		switch {
-		case strings.HasPrefix(string(buffer[:mLen]), "CONNECT"):
+		case strings.HasPrefix(string(buffer[:mLen]), "CONNECT: "):
 			ok := true
 			serverKey, ok = StringToKey(string(buffer[9:mLen]))
 			if !ok {
@@ -121,8 +121,8 @@ func readResponses(connection net.Conn) {
 			}
 			fmt.Println(KeyToString(serverKey))
 			continue
-		case strings.HasPrefix(string(buffer[:mLen]), "PUT"):
-		case strings.HasPrefix(string(buffer[:mLen]), "DELETE"):
+		case strings.HasPrefix(string(buffer[:mLen]), "PUT: "):
+		case strings.HasPrefix(string(buffer[:mLen]), "DELETE: "):
 			continue
 		default:
 			if isGettingValue {
@@ -135,11 +135,11 @@ func readResponses(connection net.Conn) {
 	}
 }
 
-// readUserInput will continously check for user input and send each line to
+// readUserInputs will continously check for user input and send each line to
 // the server. If an invalid command is entered, the command will not be sent.
 // The function will return if an error sending a message occurs, the
 // program will end.
-func readUserInput(connection net.Conn) {
+func readUserInputs(connection net.Conn) {
 	for {
 		reader := bufio.NewReader(os.Stdin)
 		fmt.Print("> ")
@@ -149,24 +149,24 @@ func readUserInput(connection net.Conn) {
 				continue
 			}
 			if isPuttingValue {
-				sendEncryptedClientMessage(connection, input)
+				sendClientMessage(connection, input)
 				isPuttingValue = false
 				break
 			} else if strings.HasPrefix(input, "PUT ") {
-				sendEncryptedClientMessage(connection, input)
+				sendClientMessage(connection, input)
 				isPuttingValue = true
 				break
 			}
 			if strings.HasPrefix(input, "GET ") {
 				isGettingValue = true
 			}
-			sendEncryptedClientMessage(connection, input)
+			sendClientMessage(connection, input)
 			break
 		}
 	}
 }
 
-func sendEncryptedClientMessage(connection net.Conn, input string) {
+func sendClientMessage(connection net.Conn, input string) {
 	if serverKey == (rsa.PublicKey{}) {
 		_, err := connection.Write([]byte(input[:len(input)-endLineChars])) // Cut end-line.
 		if err != nil {
@@ -175,7 +175,11 @@ func sendEncryptedClientMessage(connection net.Conn, input string) {
 		}
 		return
 	}
-	encryptedBytes := Encrypt(serverKey, input[:len(input)-endLineChars])
+	encryptedBytes, ok := Encrypt(serverKey, input[:len(input)-endLineChars])
+	if !ok {
+		fmt.Println("Error encrypting message")
+		os.Exit(1)
+	}
 	_, err := connection.Write(encryptedBytes) // Cut end-line.
 	if err != nil {
 		fmt.Println("Error writing:", err.Error())
