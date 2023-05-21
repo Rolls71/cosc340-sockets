@@ -21,6 +21,10 @@ var clientPublicKey rsa.PublicKey
 var serverKey rsa.PublicKey
 var aesKey []byte
 
+// Client attempts to establish a socket connection to a TCP server with the
+// given host name and port. After using net.Dial, Client will generate RSA keys
+// and an AES key for secure communication and data storage. Client will then
+// run two goroutines that continuously read user input and server input.
 func Client(serverHost, serverPort string) {
 	if runtime.GOOS == "windows" {
 		endLineChars = 2
@@ -92,8 +96,9 @@ After sending any other than these commands, the server and client will disconne
 	wg.Wait()
 }
 
-// readServerMessages will continuously check for server messages and print anything
-// it finds. If "DISCONNECT" is received the program will end.
+// readServerMessages will continuously check for server messages and RSA
+// decrypt them. If "DISCONNECT" or an unrecognised command is received, the
+// client will disconnect.
 func readServerMessages(connection net.Conn) {
 	for {
 		buffer := make([]byte, 1024)
@@ -152,8 +157,7 @@ func readServerMessages(connection net.Conn) {
 
 // readUserInputs will continously check for user input and send each line to
 // the server. If an invalid command is entered, the command will not be sent.
-// The function will return if an error sending a message occurs, the
-// program will end.
+// The client will disconnect if an error occurs
 func readUserInputs(connection net.Conn) {
 	for {
 		reader := bufio.NewReader(os.Stdin)
@@ -190,6 +194,9 @@ func readUserInputs(connection net.Conn) {
 	}
 }
 
+// sendClientMessage will RSA encrypt the given message and send it along the
+// given connection. If public keys have not yet been exchanged, the message
+// will not be encrypted. Disconnects the client if an error occurs.
 func sendClientMessage(connection net.Conn, input string) {
 	if serverKey == (rsa.PublicKey{}) {
 		_, err := connection.Write([]byte(input[:len(input)-endLineChars])) // Cut end-line.
